@@ -114,12 +114,6 @@ func parseYbn(oriStm []byte, key []byte) (script ybnInfo, err error) {
 	} else {
 		decryptedStm = bytes.NewReader(oriStm)
 	}
-
-	logln("write decrypted file...")
-	s := []string{*inYbnName, ".decrypt"}
-	err1 := ioutil.WriteFile(strings.Join(s, ""), oriStm, 0644)
-	fmt.Println(err1)
-
 	logln("reading sections...")
 	decryptedStm.Seek(int64(binary.Size(header)), 0)
 	script.Insts = make([]instInfo, header.InstCnt)
