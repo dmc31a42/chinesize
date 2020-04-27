@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/regomne/eutil/codec"
-	"github.com/regomne/eutil/memio"
-	"github.com/regomne/eutil/textFile"
+	"github.com/dmc31a42/eutil/codec"
+	"github.com/dmc31a42/eutil/memio"
+	"github.com/dmc31a42/eutil/textFile"
 )
 
 type keyOps struct {
@@ -314,7 +314,7 @@ func parseYbnFile(ybnName, outScriptName, outTxtName string, key []byte, ops *ke
 	return true
 }
 
-func packTxtToYbn(script *ybnInfo, stm []byte, txt []string, ops *keyOps, codePage int) (newStm []byte, err error) {
+func packTxtToYbn(script *ybnInfo, stm []byte, txt []string, ops *keyOps, codePage int, key []byte) (newStm []byte, err error) {
 	argOffStart := uint32(binary.Size(script.Header)) + script.Header.CodeSize
 	argStm := memio.NewWithBytes(stm[argOffStart : argOffStart+script.Header.ArgSize])
 
@@ -386,7 +386,15 @@ func packTxtToYbn(script *ybnInfo, stm []byte, txt []string, ops *keyOps, codePa
 	newYbn.Write(resTail.Bytes())
 	offStart := resStart + script.Header.ResourceSize
 	newYbn.Write(stm[offStart : offStart+script.Header.OffSize])
-	return newYbn.Bytes(), nil
+	newBytes := newYbn.Bytes()
+	if bytes.Compare(key, []byte("\x00\x00\x00\x00")) != 0 {
+		logf("encrypting, key is:%02x %02x %02x %02x\n", key[0], key[1], key[2], key[3])
+		decryptYbn(newBytes, key, uint32(binary.Size(newHdr)), newHdr.CodeSize)
+		decryptYbn(newBytes, key, uint32(binary.Size(newHdr))+newHdr.CodeSize, newHdr.ArgSize)
+		decryptYbn(newBytes, key, uint32(binary.Size(newHdr))+newHdr.CodeSize+newHdr.ArgSize, newHdr.ResourceSize)
+		decryptYbn(newBytes, key, uint32(binary.Size(newHdr))+newHdr.CodeSize+newHdr.ArgSize+newHdr.ResourceSize, newHdr.OffSize)
+	}
+	return newBytes, nil
 }
 
 func packYbnFile(ybnName, txtName, outYbnName string, key []byte, ops *keyOps, codePage int) bool {
@@ -396,13 +404,12 @@ func packYbnFile(ybnName, txtName, outYbnName string, key []byte, ops *keyOps, c
 		fmt.Println(err)
 		return false
 	}
-	if bytes.Compare(key, []byte("\x00\x00\x00\x00")) != 0 {
-		logf("decrypting, key is:%02x %02x %02x %02x\n", key[0], key[1], key[2], key[3])
-		decryptYbn(oriStm, key)
-	}
+	// if bytes.Compare(key, []byte("\x00\x00\x00\x00")) != 0 {
+	// 	logf("decrypting, key is:%02x %02x %02x %02x\n", key[0], key[1], key[2], key[3])
+	// 	decryptYbn(oriStm, key)
+	// }
 	logln("parsing ybn...")
-	reader := bytes.NewReader(oriStm)
-	script, err := parseYbn(reader)
+	script, err := parseYbn(oriStm, key)
 	if err != nil {
 		fmt.Println("parse error:", err)
 		return false
@@ -420,15 +427,15 @@ func packYbnFile(ybnName, txtName, outYbnName string, key []byte, ops *keyOps, c
 	}
 	logf("reading text finished, %d lines\n", len(ls))
 	logln("packing text to ybn...")
-	newStm, err := packTxtToYbn(&script, oriStm, ls, ops, codePage)
+	newStm, err := packTxtToYbn(&script, oriStm, ls, ops, codePage, key)
 	if err != nil {
 		fmt.Println(err)
 		return false
 	}
-	if bytes.Compare(key, []byte("\x00\x00\x00\x00")) != 0 {
-		logln("encrypting ybn...")
-		decryptYbn(newStm, key)
-	}
+	// if bytes.Compare(key, []byte("\x00\x00\x00\x00")) != 0 {
+	// 	logln("encrypting ybn...")
+	// 	decryptYbn(newStm, key)
+	// }
 	logln("writing ybn:", outYbnName)
 	ioutil.WriteFile(outYbnName, newStm, os.ModePerm)
 	logln("complete.")
@@ -467,6 +474,8 @@ func parseCp(s string) int {
 		return codec.C936
 	case "932":
 		return codec.C932
+	case "949":
+		return codec.C949
 	default:
 		return codec.Unknown
 	}
